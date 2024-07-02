@@ -1,35 +1,34 @@
-const nodemailer = require('nodemailer');
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('users.db');
 
-const transporter = nodemailer.createTransport({
-  host: 'localhost',
-  port: 465,
+const server = new SMTPServer({
   secure: true,
-  auth: {
-    user: 'username',
-    pass: 'password'
+  key: fs.readFileSync('server.key'),
+  cert: fs.readFileSync('server.cert'),
+  onData(stream, session, callback) {
+    simpleParser(stream)
+      .then(parsed => {
+        logger.write(`Email received from ${session.envelope.mailFrom.address} to ${session.envelope.rcptTo[0].address} at ${new Date().toISOString()}\n`);
+        logger.write(`Subject: ${parsed.subject}\n\n`);
+        callback(null, 'Message received');
+      })
+      .catch(err => {
+        console.error(err);
+        callback(err);
+      });
   },
-  tls: {
-    // Do not fail on invalid certs
-    rejectUnauthorized: false
+  onAuth(auth, session, callback) {
+    db.get('SELECT password FROM users WHERE username = ?', [auth.username], (err, row) => {
+      if (err) return callback(new Error('Authentication error'));
+      if (row && row.password === auth.password) {
+        callback(null, { user: 'authenticated' });
+      } else {
+        return callback(new Error('Invalid username or password'));
+      }
+    });
   }
 });
 
-const mailOptions = {
-  from: 'sender@example.com',
-  to: 'recipient@example.com',
-  subject: 'Test Email with Attachment',
-  text: 'Hello, this is a test email with an attachment!',
-  attachments: [
-    {
-      filename: 'test.txt',
-      content: 'Hello world!'
-    }
-  ]
-};
-
-transporter.sendMail(mailOptions, (error, info) => {
-  if (error) {
-    return console.log(error);
-  }
-  console.log('Message sent: %s', info.messageId);
+server.listen(465, () => {
+  console.log('SMTP server is listening on port 465');
 });
